@@ -1,0 +1,276 @@
+﻿@page
+@using System.Net.Http.Headers
+@using Azure.Core
+@using Azure.Identity
+
+<!doctype html>
+<meta charset="utf-8">
+<title>OpenAI Realtime API – bare-bones voice chat</title>
+
+<style>
+body{font-family:system-ui;margin:2rem;display:grid;gap:1rem}
+button{padding:.6rem 1.2rem;font-size:1rem;border:2px solid #000;background:#fff}
+#log{font-family:monospace;white-space:pre;max-height:10rem;overflow:auto;background:#f4f4f4;padding:.5rem}
+</style>
+
+<h1>Realtime voice ↔ voice chat</h1>
+
+@{
+    this.Layout = null;
+
+    //var endpoint = "https://ai-chwieder-20250314-ai838585531333.cognitiveservices.azure.com/voice-agent/realtime";
+    //var apiKey = "your-azure-openai-api-key";
+    //var apiVersion = "2025-04-01-preview";
+    //var deployment = "your-deployment-id";
+
+    var credential = new DefaultAzureCredential(false);
+    var accessToken = credential.GetToken(new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" }));
+
+    // To print the token, you can convert it to string 
+    String accessTokenString = accessToken.Token.ToString();
+
+    @* Console.WriteLine(accessTokenString); *@
+
+    this.ViewData["AccessToken"] = accessTokenString;
+}
+
+<br/>
+<textarea id="instructions" rows="4" cols="50" placeholder="Enter instructions for the AI model...">
+    You are a Microsoft Azure AI salesperson, and your job is to converse with a customer to understand their business and ultimately convince them to use Azure AI within their business.
+
+    ---
+
+    In this conversation, you will talk to a lady named Lillian who is the Chief Product Officer at Contoso. Lilian's concerns are as follows:
+
+    * Lillian wants to optimize costs.  
+    * Lillian wants to help employees thrive and improve employee retention.  
+    * Lillian wants to meet or exceed their KPIs.
+    * Lillian is overwhelmed by the number of AI vendors each claiming to offer the best solution.
+    * Lillian is curious about how Microsoft uses AI.
+    * Lillian is concerned about how AI tools will integrate with Contoso's existing system.
+
+    ---
+
+    Here's the "3-Pronged approach" to guide the customer on getting started with Al.
+
+    This means:
+    1.) mentioning the importance of a solid cybersecurity foundation
+    2.) encouraging the use of Copilot to its fullest commercial capabilities to find where it adds value
+    3.) then start thinking about customized solutions.
+
+    ---
+
+    Here are some primary objectives for this conversation:
+
+    * Lead the conversation, asking questions to learn more about the customer's priorities and what drives business value. Ask them about challenges, how success is measured, and ask for details.
+    * Behave as a trusted advisor, being an active listener who understands the industry and prioritizes the customer's best interests.
+    * Help the customer understand the four main ways that Al adoption delivers impact and ROI.
+    * Tell Customer Zero stories shared in this course to show how Al adoption has impacted Microsoft.
+    * Use the 3-Pronged Approach to guide the customer on getting started with AI
+
+    ---
+
+    Here are a couple of ideas that might come in useful:
+
+    * Propose a tiered approach: You can address their concerns and begin to uncover the details of their operational inefficiencies. Together you identify the best use cases for the M365 Copilot proof of concept to start implementing immediately. You outline a longer-term approach for addressing their legacy infrastructure and associated security concerns, on-premises data sets, and their future desired state of a customized, agentic user interface.
+
+    * Ask discovery questions to identify underlying needs for Al solutions.
+
+    * Reference the AI Transformation pillars as a framework to help customers connect AI solutions to measurable ROI.
+
+    * Provide Customer Zero stories to make AI possibility real for the customer.
+
+    * Apply the 3-Pronged Approach to help customers get started with AI and simplify their strategy.
+
+    * Align with your account team and partners to provide a comprehensive, cross-solution AI approach.
+
+    ---
+
+    There are 4 pillars of AI Transformation that I want you to focus on and each one is listed below and includes a Customer Zero use case that we use internally at Microsoft. These will help guide the conversation with the customer.
+
+    1. Enrich employee experience
+
+    Customer Zero Story: Deploying M365 Copilot across 65,000 Microsoft employees in the sales organization led to a significant increase in productivity. We tracked performance across 102 global subsidiaries and saw that top Copilot users achieved 23% faster close rates and 9% more revenue per head against their personal bests. The investment in Copilot essentially pays for itself through these productivity gains.
+
+
+    2. Reinvent customer engagement
+
+    Customer Zero Story: Microsoft manages 75 million incidents annually worldwide. We deployed agents to triage inbound flows, route new signals to senior engineers, and attach a Copilot to each customer. This system led to faster, more effective incident resolution and enabled root cause analysis to update our knowledge base, improving response times for similar future signals.
+
+
+    3. Reshape business processes
+
+    Customer Zero Story: Microsoft's new Chief Al Officer is evaluating all processes to leverage Al across the company. For example, previously software engineers supported customers on older products. Now, Al mainly handles this support, allowing engineers to focus on strategic initiatives that drive the company forward. Al pays for itself by letting you focus on what truly matters for the business.
+
+
+    4. Bend the curve on innovation
+
+    Customer Zero Story: Microsoft has delivered more products to market in the last 12 months than we have over the last three years. This is partly because GitHub Copilot has written more than one-third of the lines of code  needed for the other Copilots we have released, allowing us to innovate and go to market at a much faster rate.
+</textarea>
+
+<div>
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+</div>
+
+<pre id="log"></pre>
+
+<script>
+
+/* ---------- tweakables ---------- */
+const SAMPLE_RATE_IN  = 48_000;   // what the browser gives us
+const SAMPLE_RATE_OUT = 24_000;   // what the API expects (pcm16, mono)
+const CHUNK = 2048;               // scriptProcessor buffer size
+
+/* ---------- helpers ---------- */
+const log = msg => (log.el.textContent += msg + '\n');
+log.el = document.getElementById('log');
+
+function downsample(float32 /*Float32Array*/) {
+
+  if (SAMPLE_RATE_OUT === SAMPLE_RATE_IN) return float32;
+
+  const ratio = SAMPLE_RATE_IN / SAMPLE_RATE_OUT;
+  const out   = new Int16Array(Math.round(float32.length / ratio));
+
+  let iOut = 0, iIn = 0;
+
+  while (iOut < out.length) {
+    const nextIn = Math.round((iOut + 1) * ratio);
+    let sum = 0, count = 0;
+    for (; iIn < nextIn && iIn < float32.length; iIn++) {
+      sum += float32[iIn]; count++;
+    }
+    out[iOut++] = Math.max(-1, Math.min(1, sum / count)) * 0x7FFF;
+  }
+
+  return out;
+}
+
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+/* ---------- main ---------- */
+let ws, audioCtx, micStream, procNode, playingQueue = [], playTime = 0;
+
+async function start() {
+
+  // 1. open websocket
+  ws = new WebSocket(`wss://ai-chwieder-20250314-ai838585531333.cognitiveservices.azure.com/voice-agent/realtime?api-version=2025-05-01-preview&model=gpt-4o&authorization=bearer+@this.ViewData["AccessToken"]`);
+
+  ws.addEventListener('open', () => {
+
+    ws.send(JSON.stringify({
+      type: 'session.update',
+      session: {
+            instructions: document.getElementById("instructions").value.trim() || "No instructions provided.",
+            input_audio_transcription: {
+                model: 'azure-fast-transcription'
+            },
+            modalities: ['text', 'audio'],
+            turn_detection: {
+                type: 'server_vad',
+                end_of_utterance_detection: null
+            },
+            input_audio_noise_reduction: null,
+            input_audio_echo_cancellation: null,
+            voice: {
+                name: 'en-US-Andrew:DragonHDLatestNeural',
+                type: 'azure-standard',
+                temperature: 0.8,
+                rate: '1'
+            }
+            // voice: {
+            //     name: 'en-US-CustomNeural',
+            //     type: 'azure-custom',
+            //     endpoint_id: 'c6c33157-b00d-4260-ada0-e1a88e2684c2',
+            //     temperature: 0.8
+            // }
+        }
+    }));
+
+    log('🔗 websocket open – session.update sent');
+  });
+
+  ws.addEventListener('message', onWsMessage);
+  ws.addEventListener('close',  () => log('🔌 websocket closed'));
+  ws.addEventListener('error',  e  => log('⚠️  ws error ' + e));
+
+  // add auth headers (WebSocket API doesn’t allow headers directly; use sub-protocol hack)
+  ws.onopen = null; // we already set above; to keep code terser
+
+  // 2. capture mic
+  const stream = await navigator.mediaDevices.getUserMedia({audio: {sampleRate: SAMPLE_RATE_IN, channelCount: 1}});
+  audioCtx   = new (window.AudioContext || window.webkitAudioContext)({sampleRate: SAMPLE_RATE_IN});
+  micStream  = audioCtx.createMediaStreamSource(stream);
+  procNode   = audioCtx.createScriptProcessor(CHUNK, 1, 1);
+
+  procNode.onaudioprocess = e => {
+    if (ws.readyState !== 1) return;
+    const floatData = e.inputBuffer.getChannelData(0).slice(0); // clone
+    const int16     = downsample(floatData);
+    ws.send(JSON.stringify({
+      type:  'input_audio_buffer.append',
+      audio: b64(int16.buffer)
+    }));
+  };
+
+  micStream.connect(procNode).connect(audioCtx.destination);
+  log('🎙️  microphone streaming');
+
+  document.getElementById('start').disabled = true;
+  document.getElementById('stop').disabled  = false;
+}
+
+function stop() {
+  ws?.close();
+  procNode?.disconnect();
+  micStream?.disconnect();
+  audioCtx?.close();
+  playingQueue = [];
+  document.getElementById('start').disabled = false;
+  document.getElementById('stop').disabled  = true;
+}
+
+function onWsMessage(ev) {
+
+  const evt = JSON.parse(ev.data);
+
+  switch (evt.type) {
+
+    case 'response.audio.delta':
+      playPcm(evt.delta);
+      break;
+
+    case 'response.audio_transcript.done':
+      log('📝 ' + evt.transcript);
+      break;
+
+    default:
+      if (!evt.type.startsWith('input_audio')) log('📨 ' + evt.type);
+  }
+}
+
+/* ----- tiny PCM player for 24 kHz mono pcm16 ----- */
+function playPcm(base64) {
+
+  const bytes  = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  const int16  = new Int16Array(bytes.buffer);
+  const float  = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float[i] = int16[i] / 0x7FFF;
+
+  const buf = audioCtx.createBuffer(1, float.length, SAMPLE_RATE_OUT);
+  buf.getChannelData(0).set(float);
+
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+
+  const now = audioCtx.currentTime;
+  playTime = Math.max(playTime, now) + buf.duration;
+  src.start(playTime - buf.duration);  // queue-up
+}
+
+document.getElementById('start').onclick = start;
+document.getElementById('stop').onclick  = stop;
+
+</script>
