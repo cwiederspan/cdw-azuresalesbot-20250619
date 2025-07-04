@@ -5,7 +5,7 @@
 
 <!doctype html>
 <meta charset="utf-8">
-<title>OpenAI Realtime API – bare-bones voice chat</title>
+<title>Azure Sales Bot</title>
 
 <style>
 body{font-family:system-ui;margin:2rem;display:grid;gap:1rem}
@@ -13,25 +13,20 @@ button{padding:.6rem 1.2rem;font-size:1rem;border:2px solid #000;background:#fff
 #log{font-family:monospace;white-space:pre;max-height:10rem;overflow:auto;background:#f4f4f4;padding:.5rem}
 </style>
 
-<h1>Realtime voice ↔ voice chat</h1>
+<h1>Realtime Voice - Azure Sales Bot</h1>
 
 @{
     this.Layout = null;
 
-    //var endpoint = "https://ai-chwieder-20250314-ai838585531333.cognitiveservices.azure.com/voice-agent/realtime";
-    //var apiKey = "your-azure-openai-api-key";
-    //var apiVersion = "2025-04-01-preview";
-    //var deployment = "your-deployment-id";
-
+    // Authenticate with Azure using DefaultAzureCredential
     var credential = new DefaultAzureCredential(false);
     var accessToken = credential.GetToken(new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" }));
 
-    // To print the token, you can convert it to string 
-    String accessTokenString = accessToken.Token.ToString();
-
-    @* Console.WriteLine(accessTokenString); *@
-
-    this.ViewData["AccessToken"] = accessTokenString;
+    // Save these variables for later use in the JavaScript code below
+    var endpoint = "wss://ai-chwieder-20250314-ai838585531333.cognitiveservices.azure.com/voice-agent/realtime";
+    var apiVersion = "2025-05-01-preview";
+    var gptModel = "gpt-4o";
+    var accessTokenString = accessToken.Token.ToString();
 }
 
 <br/>
@@ -155,7 +150,7 @@ let ws, audioCtx, micStream, procNode, playingQueue = [], playTime = 0;
 async function start() {
 
   // 1. open websocket
-  ws = new WebSocket(`wss://ai-chwieder-20250314-ai838585531333.cognitiveservices.azure.com/voice-agent/realtime?api-version=2025-05-01-preview&model=gpt-4o&authorization=bearer+@this.ViewData["AccessToken"]`);
+  ws = new WebSocket(`@endpoint?api-version=@apiVersion&model=@gptModel&authorization=bearer+@accessTokenString`);
 
   ws.addEventListener('open', () => {
 
