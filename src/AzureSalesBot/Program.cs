@@ -6,11 +6,6 @@ builder.Services.AddRazorPages();
 var app = builder.Build();
 
 app.UseRouting();
-
 // app.UseAuthorization();
-
-app.MapStaticAssets();
-app.MapRazorPages()
-   .WithStaticAssets();
-
+app.MapRazorPages();
 app.Run();
