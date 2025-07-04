@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: cdw-azuresalesbot-20250619
+metadata:
+  template: azd-init@1.17.2
+services:
+  azure-sales-bot:
+    project: src/AzureSalesBot
+    host: containerapp
+    language: dotnet
+resources:
+  azure-sales-bot:
+    type: host.containerapp
+    port: 8080
+    uses:
+      - ai-project
+  ai-project:
+    type: ai.project
+    models:
+      - name: gpt-4o
+        version: "2024-11-20"
+        format: OpenAI
+        sku:
+          name: GlobalStandard
+          usageName: OpenAI.GlobalStandard.gpt-4o
+          capacity: 10
